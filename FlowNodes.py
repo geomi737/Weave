@@ -2,7 +2,7 @@ import random
 from re import L
 
 import pandas as pd
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from sklearn.model_selection import train_test_split
 from FlowTypes import DataframeData, SeriesData, TextData
 from qtpynodeeditor import (
@@ -578,65 +578,111 @@ class TVTSplitNode(ContainerModel):
 class Model(ContainerModel):
     name = "Model"
     caption = "Model"
+    task = None
+    train_requested = pyqtSignal()
+    inputs_changed = pyqtSignal()
+    architecture_changed = pyqtSignal()
+    model_imported = pyqtSignal(object)
 
     num_ports = {
-        PortType.input: 2,
+        PortType.input: 6,
         PortType.output: 0
     }
 
     data_type = {
         PortType.input: {
-            0: DataframeData.data_type,
-            1: SeriesData.data_type
+            index: DataframeData.data_type if index % 2 == 0 else SeriesData.data_type
+            for index in range(6)
         }
     }
 
     port_caption = {
         PortType.input: {
-            0: "Features",
-            1: "Target"
+            0: "Train Features", 1: "Train Target",
+            2: "Validation Features", 3: "Validation Target",
+            4: "Test Features", 5: "Test Target",
         }
     }
+    port_caption_visible = True
 
     def __init__(self, style=None, parent=None):
         super().__init__(style, parent)
         self.layers = []
+        self.datasets = [None] * 6
+        self.training_active = False
+        self.detached = False
         self.init_widget()
-        self.X = None
-        self.y = None
 
     def set_in_data(self, node_data: DataframeData | SeriesData, port: Port):
-        data = node_data.value if node_data else None
-        port = port.index
-        match port:
-            case 0:
-                self.X = data
-            case 1:
-                self.y = data
+        self.datasets[port.index] = node_data.value if node_data is not None else None
+        self.update_train_button()
+        self.inputs_changed.emit()
+
+    def ready_to_train(self):
+        if self.datasets[0] is None or self.datasets[1] is None:
+            return False
+        return all((self.datasets[index] is None) == (self.datasets[index + 1] is None)
+                   for index in (2, 4))
+
+    def update_train_button(self):
+        if self.detached:
+            return
+        self.train_button.setVisible(self.ready_to_train())
+        self.train_button.setEnabled(not self.training_active)
+        self._update_layers_size()
+
+    def set_training_active(self, active):
+        self.training_active = active
+        if self.detached:
+            return
+        self.layers_widget.setEnabled(not active)
+        self.add_linear_button.setEnabled(not active)
+        self.add_activation_button.setEnabled(not active)
+        self.import_button.setEnabled(not active)
+        self.update_train_button()
 
     def init_widget(self):
-        self.lr_spinbox = QDoubleSpinBox(self.embedded_widget_container)
-        self.lr_spinbox.setRange(0, 1)
-        self.lr_spinbox.setDecimals(8)
-        self.lr_spinbox.setValue(1e-4)
         self.add_linear_button = QPushButton("Add linear", self.embedded_widget_container)
         self.add_linear_button.clicked.connect(self.add_linear_layer)
         self.add_activation_button = QPushButton("Add activation", self.embedded_widget_container)
         self.add_activation_button.clicked.connect(self.add_activation_layer)
 
-        self.layout.addWidget(self.lr_spinbox)
+        self.import_button = QPushButton("Import model")
+        self.import_button.clicked.connect(self.import_model)
+        self.train_button = QPushButton("Train")
+        self.train_button.clicked.connect(lambda: self.train_requested.emit())
+        self.train_button.hide()
+        self.layout.addWidget(self.import_button)
         self.layout.addWidget(self.add_linear_button)
         self.layout.addWidget(self.add_activation_button)
-        self.layers_layout = QVBoxLayout()
-        self.layout.addLayout(self.layers_layout)
+        self.layers_widget = QWidget()
+        self.layers_layout = QVBoxLayout(self.layers_widget)
+        self.layers_layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.addWidget(self.layers_widget)
+        self.layout.addWidget(self.train_button)
 
-    def add_linear_layer(self):
+    def _create_layer_widget(self, title, layer_type):
         layer_widget = QWidget()
         layer_layout = QVBoxLayout(layer_widget)
         layer_layout.setContentsMargins(0, 0, 0, 0)
-        layer_layout.addWidget(QLabel("Linear layer"))
-
+        layer_layout.addWidget(QLabel(title))
         row_layout = QHBoxLayout()
+        delete_button = QPushButton("Delete")
+        delete_button.setStyleSheet(
+            "background-color: #c62828; color: white;"
+        )
+        row_layout.addWidget(delete_button)
+        layer_layout.addLayout(row_layout)
+        self.layers_layout.addWidget(layer_widget)
+        layer = {"type": layer_type, "widget": layer_widget}
+        self.layers.append(layer)
+        delete_button.clicked.connect(
+            lambda checked=False: self.remove_layer(layer)
+        )
+        return layer, row_layout
+
+    def add_linear_layer(self):
+        layer, row_layout = self._create_layer_widget("Linear layer", "linear")
         in_spinbox = QSpinBox()
         in_spinbox.setRange(1, 100000)
         in_spinbox.setValue(10)
@@ -644,59 +690,25 @@ class Model(ContainerModel):
         out_spinbox.setRange(1, 100000)
         out_spinbox.setValue(1)
 
-        delete_button = QPushButton("Delete")
-        delete_button.setStyleSheet(
-            "background-color: #c62828; color: white;"
-        )
-        row_layout.addWidget(in_spinbox, 1)
-        row_layout.addWidget(out_spinbox, 1)
-        row_layout.addWidget(delete_button)
-        layer_layout.addLayout(row_layout)
-        self.layers_layout.addWidget(layer_widget)
-
-        layer = {
-            "type": "linear",
-            "widget": layer_widget,
-            "in_spinbox": in_spinbox,
-            "out_spinbox": out_spinbox,
-        }
-        self.layers.append(layer)
-        delete_button.clicked.connect(
-            lambda checked=False: self.remove_layer(layer)
-        )
+        row_layout.insertWidget(0, in_spinbox, 1)
+        row_layout.insertWidget(1, out_spinbox, 1)
+        layer.update(in_spinbox=in_spinbox, out_spinbox=out_spinbox)
+        in_spinbox.valueChanged.connect(lambda: self.architecture_changed.emit())
+        out_spinbox.valueChanged.connect(lambda: self.architecture_changed.emit())
         self._update_layers_size()
+        self.architecture_changed.emit()
 
     def add_activation_layer(self):
-        layer_widget = QWidget()
-        layer_layout = QVBoxLayout(layer_widget)
-        layer_layout.setContentsMargins(0, 0, 0, 0)
-        layer_layout.addWidget(QLabel("Activation layer"))
+        from Training import ACTIVATIONS
 
-        row_layout = QHBoxLayout()
+        layer, row_layout = self._create_layer_widget("Activation layer", "activation")
         activation_combobox = QComboBox()
-        activation_combobox.addItems([
-            "ReLU", "GELU", "Sigmoid", "Tanh", "LeakyReLU",
-            "ELU", "SiLU", "Softmax",
-        ])
-        delete_button = QPushButton("Delete")
-        delete_button.setStyleSheet(
-            "background-color: #c62828; color: white;"
-        )
-        row_layout.addWidget(activation_combobox, 1)
-        row_layout.addWidget(delete_button)
-        layer_layout.addLayout(row_layout)
-        self.layers_layout.addWidget(layer_widget)
-
-        layer = {
-            "type": "activation",
-            "widget": layer_widget,
-            "activation_combobox": activation_combobox,
-        }
-        self.layers.append(layer)
-        delete_button.clicked.connect(
-            lambda checked=False: self.remove_layer(layer)
-        )
+        activation_combobox.addItems(ACTIVATIONS)
+        row_layout.insertWidget(0, activation_combobox, 1)
+        layer["activation_combobox"] = activation_combobox
+        activation_combobox.currentTextChanged.connect(lambda: self.architecture_changed.emit())
         self._update_layers_size()
+        self.architecture_changed.emit()
 
     def remove_layer(self, layer):
         self.layers.remove(layer)
@@ -704,7 +716,72 @@ class Model(ContainerModel):
         layer["widget"].hide()
         layer["widget"].deleteLater()
         self._update_layers_size()
+        self.architecture_changed.emit()
+
+    def architecture(self):
+        layers = []
+        for layer in self.layers:
+            if layer["type"] == "linear":
+                layers.append({"type": "linear",
+                               "in_features": layer["in_spinbox"].value(),
+                               "out_features": layer["out_spinbox"].value()})
+            else:
+                layers.append({"type": "activation",
+                               "activation": layer["activation_combobox"].currentText()})
+        return layers
+
+    def restore_architecture(self, layers):
+        for layer in list(self.layers):
+            self.remove_layer(layer)
+        for layer in layers:
+            if layer["type"] == "linear":
+                self.add_linear_layer()
+                self.layers[-1]["in_spinbox"].setValue(layer["in_features"])
+                self.layers[-1]["out_spinbox"].setValue(layer["out_features"])
+            else:
+                self.add_activation_layer()
+                self.layers[-1]["activation_combobox"].setCurrentText(layer["activation"])
+
+    def import_model(self):
+        from Training import TrainingSession
+        filename, _ = QFileDialog.getOpenFileName(
+            self.embedded_widget_container, "Import model", "", "Model archives (*.zip)",
+        )
+        if not filename:
+            return
+        try:
+            session = TrainingSession.import_zip(filename, self.task)
+            self.restore_architecture(session.layers)
+        except (ValueError, OSError) as error:
+            self.status_label.setText(str(error))
+            self._update_layers_size()
+            return
+        self.status_label.clear()
+        self.model_imported.emit(session)
 
     def _update_layers_size(self):
+        if self.detached:
+            return
+        for layout in (self.layers_layout, self.layout,
+                       self.embedded_widget_container.layout()):
+            layout.invalidate()
+            layout.activate()
+            layout.parentWidget().updateGeometry()
         # Let Qt recalculate the layout before updating the node geometry.
-        QTimer.singleShot(0, self.embedded_widget_size_updated.emit)
+        QTimer.singleShot(0, self._emit_widget_size_updated)
+
+    def _emit_widget_size_updated(self):
+        if not self.detached:
+            self.embedded_widget_size_updated.emit()
+
+
+class RegressionModel(Model):
+    name = "Regression Model"
+    caption = "Regression Model"
+    task = "regression"
+
+
+class ClassificationModel(Model):
+    name = "Classification Model"
+    caption = "Classification Model"
+    task = "classification"
