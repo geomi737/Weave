@@ -22,7 +22,6 @@ class Ui_MainWindow(object):
         self.verticalLayout.setContentsMargins(0, 0, 2, 0)
         self.verticalLayout.setObjectName("verticalLayout")
         self.tabWidget = QtWidgets.QTabWidget(parent=self.centralwidget)
-        self.tabWidget.setToolTip("")
         self.tabWidget.setObjectName("tabWidget")
         self.nodeEditTab = QtWidgets.QWidget()
         self.nodeEditTab.setObjectName("nodeEditTab")
@@ -50,7 +49,7 @@ class Ui_MainWindow(object):
         self.statusbar.setObjectName("statusbar")
         MainWindow.setStatusBar(self.statusbar)
         self.datasetDock = QtWidgets.QDockWidget(parent=MainWindow)
-        self.datasetDock.setMinimumSize(QtCore.QSize(300, 125))
+        self.datasetDock.setMinimumSize(QtCore.QSize(300, 171))
         self.datasetDock.setWindowIcon(icon)
         self.datasetDock.setObjectName("datasetDock")
         self.datasetWidget = QtWidgets.QWidget()
@@ -58,11 +57,29 @@ class Ui_MainWindow(object):
         self.verticalLayout_4 = QtWidgets.QVBoxLayout(self.datasetWidget)
         self.verticalLayout_4.setContentsMargins(0, 0, 0, 0)
         self.verticalLayout_4.setObjectName("verticalLayout_4")
-        self.tableWidget = QtWidgets.QTableWidget(parent=self.datasetWidget)
+        self.tabWidget_2 = QtWidgets.QTabWidget(parent=self.datasetWidget)
+        self.tabWidget_2.setObjectName("tabWidget_2")
+        self.datasetPreview = QtWidgets.QWidget()
+        self.datasetPreview.setObjectName("datasetPreview")
+        self.verticalLayout_5 = QtWidgets.QVBoxLayout(self.datasetPreview)
+        self.verticalLayout_5.setContentsMargins(0, 0, 0, 0)
+        self.verticalLayout_5.setObjectName("verticalLayout_5")
+        self.tableWidget = QtWidgets.QTableWidget(parent=self.datasetPreview)
         self.tableWidget.setObjectName("tableWidget")
         self.tableWidget.setColumnCount(0)
         self.tableWidget.setRowCount(0)
-        self.verticalLayout_4.addWidget(self.tableWidget)
+        self.verticalLayout_5.addWidget(self.tableWidget)
+        self.tabWidget_2.addTab(self.datasetPreview, "")
+        self.datasetAnalyze = QtWidgets.QWidget()
+        self.datasetAnalyze.setObjectName("datasetAnalyze")
+        self.verticalLayout_6 = QtWidgets.QVBoxLayout(self.datasetAnalyze)
+        self.verticalLayout_6.setContentsMargins(0, 0, 0, 0)
+        self.verticalLayout_6.setObjectName("verticalLayout_6")
+        self.datasetAnalysis = QtWidgets.QTextBrowser(parent=self.datasetAnalyze)
+        self.datasetAnalysis.setObjectName("datasetAnalysis")
+        self.verticalLayout_6.addWidget(self.datasetAnalysis)
+        self.tabWidget_2.addTab(self.datasetAnalyze, "")
+        self.verticalLayout_4.addWidget(self.tabWidget_2)
         self.datasetDock.setWidget(self.datasetWidget)
         MainWindow.addDockWidget(QtCore.Qt.DockWidgetArea(2), self.datasetDock)
         self.actionOpen = QtGui.QAction(parent=MainWindow)
@@ -91,6 +108,7 @@ class Ui_MainWindow(object):
 
         self.retranslateUi(MainWindow)
         self.tabWidget.setCurrentIndex(0)
+        self.tabWidget_2.setCurrentIndex(0)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
 
     def retranslateUi(self, MainWindow):
@@ -101,10 +119,20 @@ class Ui_MainWindow(object):
         self.menuFile.setTitle(_translate("MainWindow", "File"))
         self.menuView.setTitle(_translate("MainWindow", "View"))
         self.datasetDock.setWindowTitle(_translate("MainWindow", "Dataset Viewer"))
+        self.tableWidget.setSortingEnabled(True)
+        self.tabWidget_2.setTabText(self.tabWidget_2.indexOf(self.datasetPreview), _translate("MainWindow", "Preview"))
+        self.datasetAnalysis.setHtml(_translate("MainWindow", "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.0//EN\" \"http://www.w3.org/TR/REC-html40/strict.dtd\">\n"
+"<html><head><meta name=\"qrichtext\" content=\"1\" /><meta charset=\"utf-8\" /><style type=\"text/css\">\n"
+"p, li { white-space: pre-wrap; }\n"
+"hr { height: 1px; border-width: 0; }\n"
+"li.unchecked::marker { content: \"\\2610\"; }\n"
+"li.checked::marker { content: \"\\2612\"; }\n"
+"</style></head><body style=\" font-family:\'Noto Sans\'; font-size:10pt; font-weight:400; font-style:normal;\">\n"
+"<p style=\"-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><br /></p></body></html>"))
+        self.tabWidget_2.setTabText(self.tabWidget_2.indexOf(self.datasetAnalyze), _translate("MainWindow", "Analyze"))
         self.actionOpen.setText(_translate("MainWindow", "Open"))
         self.actionSave.setText(_translate("MainWindow", "Save"))
         self.actionDataset_Viewer.setText(_translate("MainWindow", "Dataset Viewer"))
-        self.actionDataset_Viewer.setToolTip(_translate("MainWindow", "Dataset Viewer"))
         self.actionTraining_Process.setText(_translate("MainWindow", "Training Process"))
         self.actionSave_Model.setText(_translate("MainWindow", "Save Model"))
         self.actionNew.setText(_translate("MainWindow", "New"))
