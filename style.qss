@@ -18,7 +18,7 @@ QMainWindow, QDialog {
 }
 
 QWidget#centralwidget, QWidget#datasetWidget,
-QWidget#nodeEditTab, QWidget#trainingTab, QWidget#trainingContent,
+QWidget#nodeEditTab, QWidget#trainingTab,
 QWidget#datasetPreview, QWidget#datasetAnalyze, QWidget#datasetHists {
     background-color: #1b1e27;
 }
