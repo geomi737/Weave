@@ -40,9 +40,13 @@ class OneHotNodeTest(unittest.TestCase):
                 encoder = self.model.encoder
                 with patch.object(encoder, "fit", wraps=encoder.fit) as fit:
                     for index in (1, 2):
-                        frame = pd.DataFrame(
-                            {"size": ["L"], "color": ["green"]}, index=[99]
-                        ) if index in optional else None
+                        frame = (
+                            pd.DataFrame(
+                                {"size": ["L"], "color": ["green"]}, index=[99]
+                            )
+                            if index in optional
+                            else None
+                        )
                         self.send(index, frame)
                     fit.assert_not_called()
                 result = self.model.out_data(0).value
@@ -51,7 +55,9 @@ class OneHotNodeTest(unittest.TestCase):
                 for index in (1, 2):
                     output = self.model.out_data(index)
                     if index in optional:
-                        pd.testing.assert_index_equal(output.value.columns, result.columns)
+                        pd.testing.assert_index_equal(
+                            output.value.columns, result.columns
+                        )
                         self.assertEqual(output.value.index.tolist(), [99])
                         self.assertEqual(output.value.to_numpy().sum(), 0)
                     else:
@@ -59,12 +65,16 @@ class OneHotNodeTest(unittest.TestCase):
 
     def test_waits_for_train_and_clears_outputs_when_train_is_removed(self):
         self.send(2, self.train)
-        self.assertEqual(self.model.outputs, [None, None, None])
+        self.assertTrue(
+            all(self.model.out_data(port) is None for port in range(3))
+        )
         self.send(0, self.train)
         self.assertIsNotNone(self.model.out_data(2))
         updates = QSignalSpy(self.model.data_updated)
         self.send(0, None)
-        self.assertEqual(self.model.outputs, [None, None, None])
+        self.assertTrue(
+            all(self.model.out_data(port) is None for port in range(3))
+        )
         self.assertEqual([list(item) for item in updates], [[0], [1], [2]])
 
     def test_drop_modes_and_frequency_limits(self):
@@ -95,10 +105,12 @@ class OneHotNodeTest(unittest.TestCase):
         self.assertIn("Validate", self.model.status_label.text())
         empty = self.model.out_data(2).value
         self.assertEqual(len(empty), 0)
-        pd.testing.assert_index_equal(empty.columns, self.model.out_data(0).value.columns)
+        pd.testing.assert_index_equal(
+            empty.columns, self.model.out_data(0).value.columns
+        )
         self.send(1, self.train)
         self.assertIsNotNone(self.model.out_data(1))
-        self.assertEqual(self.model.status_label.text(), "Готово")
+        self.assertEqual(self.model.status_label.text(), "Ready")
 
     def test_train_update_refits_and_propagates_to_dataset(self):
         sink = self.scene.create_node(DatasetNode)
@@ -116,7 +128,9 @@ class OneHotNodeTest(unittest.TestCase):
         self.assertEqual(sink.model.dt.columns.tolist(), ["new_x", "new_y"])
         self.scene.delete_connection(connection)
         self.assertIsNone(sink.model.dt)
-        self.assertEqual(self.model.outputs, [None, None, None])
+        self.assertTrue(
+            all(self.model.out_data(port) is None for port in range(3))
+        )
 
     def test_empty_and_mixed_train_clear_outputs_and_can_recover(self):
         for bad_train in (
@@ -131,12 +145,16 @@ class OneHotNodeTest(unittest.TestCase):
                 self.send(0, self.train)
                 self.assertIsNotNone(self.model.out_data(0))
 
-    def test_numeric_columns_pass_through_and_empty_optional_preserves_schema(self):
+    def test_numeric_columns_pass_through_and_empty_optional_preserves_schema(
+        self,
+    ):
         train = pd.DataFrame({"number": [1, 2]}, index=[10, 20])
         self.send(0, train)
         self.send(2, train.iloc[:0])
         pd.testing.assert_frame_equal(self.model.out_data(0).value, train)
-        pd.testing.assert_frame_equal(self.model.out_data(2).value, train.iloc[:0])
+        pd.testing.assert_frame_equal(
+            self.model.out_data(2).value, train.iloc[:0]
+        )
 
     def test_schema_change_clears_stale_optional_and_recovers(self):
         self.send(0, self.train)

@@ -9,8 +9,13 @@ from PyQt6.QtWidgets import QApplication
 from qtpynodeeditor import DataModelRegistry, PortType
 
 from FlowNodes import (
-    BinaryReplaceNode, DatasetNode, DropNode, OneHotNode, SeriesNode,
-    SplitColumnNode, TVTSplitNode,
+    BinaryReplaceNode,
+    DatasetNode,
+    DropNode,
+    OneHotNode,
+    SeriesNode,
+    SplitColumnNode,
+    TVTSplitNode,
 )
 from FlowScene import WeaveFlowScene
 from FlowTypes import DataframeData, SeriesData
@@ -33,8 +38,15 @@ class NodeUpdatesTest(unittest.TestCase):
         self.addCleanup(hook.stop)
         self.addCleanup(lambda: self.assertEqual(self.slot_errors, []))
         registry = DataModelRegistry()
-        for model in (BinaryReplaceNode, DatasetNode, DropNode, OneHotNode, SeriesNode,
-                      SplitColumnNode, TVTSplitNode):
+        for model in (
+            BinaryReplaceNode,
+            DatasetNode,
+            DropNode,
+            OneHotNode,
+            SeriesNode,
+            SplitColumnNode,
+            TVTSplitNode,
+        ):
             registry.register_model(model)
         self.scene = WeaveFlowScene(registry)
         self.addCleanup(self.scene.clear_scene)
@@ -47,7 +59,11 @@ class NodeUpdatesTest(unittest.TestCase):
     def send(self, node, value, port=0):
         data = None
         if value is not None:
-            data = SeriesData(value) if isinstance(value, pd.Series) else DataframeData(value)
+            data = (
+                SeriesData(value)
+                if isinstance(value, pd.Series)
+                else DataframeData(value)
+            )
         node.model.set_in_data(data, node[PortType.input][port])
 
     def test_drop_refresh_preserves_column_and_clears_disconnected_sink(self):
@@ -62,7 +78,9 @@ class NodeUpdatesTest(unittest.TestCase):
         self.send(source, pd.DataFrame({"b": [4, 5], "a": [6, 7]}))
         self.assertEqual(len(updates), 1)
         self.assertEqual(drop.model.comboBox.currentData(), "b")
-        pd.testing.assert_frame_equal(sink.model.dt, pd.DataFrame({"a": [6, 7]}))
+        pd.testing.assert_frame_equal(
+            sink.model.dt, pd.DataFrame({"a": [6, 7]})
+        )
         self.scene.delete_connection(connection)
         self.assertIsNone(sink.model.dt)
 
@@ -114,7 +132,9 @@ class NodeUpdatesTest(unittest.TestCase):
         self.assertEqual(split.model.out_data(1).value.name, 20)
         self.assertEqual(split.model.out_data(0).value.columns.tolist(), [10])
 
-    def test_full_preprocessing_chain_recovers_after_rows_and_schema_change(self):
+    def test_full_preprocessing_chain_recovers_after_rows_and_schema_change(
+        self,
+    ):
         source = self.scene.create_node(DatasetNode)
         drop = self.scene.create_node(DropNode)
         split = self.scene.create_node(SplitColumnNode)
@@ -130,15 +150,27 @@ class NodeUpdatesTest(unittest.TestCase):
             self.connect(onehot, sink, output=index)
         tvt.model.include_validate.setChecked(True)
         for count, column in ((40, "city"), (80, "region")):
-            self.send(source, pd.DataFrame({
-                "unused": range(count), "target": [0, 1] * (count // 2),
-                column: ["a", "b"] * (count // 2), "n": range(count),
-            }))
-            self.assertEqual([len(sink.model.dt) for sink in sinks],
-                             [count // 2, count * 3 // 10, count // 5])
-            self.assertEqual(onehot.model.status_label.text(), "Готово")
+            self.send(
+                source,
+                pd.DataFrame(
+                    {
+                        "unused": range(count),
+                        "target": [0, 1] * (count // 2),
+                        column: ["a", "b"] * (count // 2),
+                        "n": range(count),
+                    }
+                ),
+            )
+            self.assertEqual(
+                [len(sink.model.dt) for sink in sinks],
+                [count // 2, count * 3 // 10, count // 5],
+            )
+            self.assertEqual(onehot.model.status_label.text(), "Ready")
             for sink in sinks:
-                self.assertEqual(set(sink.model.dt.columns), {"n", f"{column}_a", f"{column}_b"})
+                self.assertEqual(
+                    set(sink.model.dt.columns),
+                    {"n", f"{column}_a", f"{column}_b"},
+                )
         self.send(source, None)
         self.assertTrue(all(sink.model.dt is None for sink in sinks))
 
@@ -157,8 +189,10 @@ class NodeUpdatesTest(unittest.TestCase):
         pd.testing.assert_frame_equal(first, node.model.out_data(0).value)
         node.model.test_pct.setValue(0.2)
         node.model.include_validate.setChecked(True)
-        self.assertEqual([len(node.model.out_data(i).value) for i in (0, 2, 4)],
-                         [500, 300, 200])
+        self.assertEqual(
+            [len(node.model.out_data(i).value) for i in (0, 2, 4)],
+            [500, 300, 200],
+        )
         node.model.val_pct.setValue(0.2)
         self.assertEqual(len(node.model.out_data(2).value), 200)
 
@@ -166,8 +200,10 @@ class NodeUpdatesTest(unittest.TestCase):
         node = self.scene.create_node(TVTSplitNode)
         self.send(node, pd.DataFrame({"f": range(100)}))
         self.send(node, pd.Series([0] * 80 + [1] * 20), port=1)
-        self.assertEqual(node.model.out_data(5).value.value_counts().to_dict(),
-                         {0: 16, 1: 4})
+        self.assertEqual(
+            node.model.out_data(5).value.value_counts().to_dict(),
+            {0: 16, 1: 4},
+        )
 
     def test_invalid_split_clears_outputs_and_recovers(self):
         node = self.scene.create_node(TVTSplitNode)
@@ -176,7 +212,7 @@ class NodeUpdatesTest(unittest.TestCase):
         node.model.include_validate.setChecked(True)
         node.model.val_pct.setValue(0.9)
         self.assertTrue(all(node.model.out_data(i) is None for i in range(6)))
-        self.assertIn("Сумма", node.model.status_label.text())
+        self.assertIn("Sum", node.model.status_label.text())
         node.model.val_pct.setValue(0.3)
         self.assertIsNotNone(node.model.out_data(0))
         self.send(node, pd.DataFrame({"f": range(21)}))
@@ -191,7 +227,7 @@ class NodeUpdatesTest(unittest.TestCase):
         self.send(node, pd.DataFrame({"f": range(10)}))
         self.send(node, pd.Series([0] * 9 + [1]), port=1)
         self.assertEqual(len(node.model.out_data(4).value), 2)
-        self.assertIn("Без стратификации", node.model.status_label.text())
+        self.assertIn("Without stratification", node.model.status_label.text())
         self.send(node, pd.DataFrame({"f": [1]}))
         self.send(node, pd.Series([0]), port=1)
         self.assertIsNone(node.model.out_data(0))
@@ -209,7 +245,7 @@ class NodeUpdatesTest(unittest.TestCase):
         self.assertEqual(str(sink.model.dt.dtype), "int64")
         self.send(source, pd.Series(["a", "b", "c"]))
         self.assertIsNone(sink.model.dt)
-        self.assertIn("два", binary.model.label.text())
+        self.assertIn("two", binary.model.status_label.text())
         self.send(source, None)
         self.assertIsNone(source.model.out_data(0))
         self.assertIsNone(sink.model.out_data(0))
@@ -231,17 +267,24 @@ class NodeUpdatesTest(unittest.TestCase):
                 if content is not None:
                     path.write_bytes(content)
                 with (
-                    patch("FlowNodes.QFileDialog.getOpenFileName",
-                          return_value=(str(path), "")),
+                    patch(
+                        "FlowNodes.QFileDialog.getOpenFileName",
+                        return_value=(str(path), ""),
+                    ),
                     patch("FlowNodes.QMessageBox.warning") as warning,
                 ):
                     source.model.load_btn.click()
                 warning.assert_called_once()
                 self.assertIsNone(sink.model.dt)
             path.write_text("a,b\n1,2\n", encoding="utf-8")
-            with patch("FlowNodes.QFileDialog.getOpenFileName", return_value=(str(path), "")):
+            with patch(
+                "FlowNodes.QFileDialog.getOpenFileName",
+                return_value=(str(path), ""),
+            ):
                 source.model.load_btn.click()
-            self.assertEqual(sink.model.dt.to_dict("list"), {"a": [1], "b": [2]})
+            self.assertEqual(
+                sink.model.dt.to_dict("list"), {"a": [1], "b": [2]}
+            )
             source.model.load_btn.click()
             self.assertIsNone(sink.model.dt)
 
@@ -249,7 +292,9 @@ class NodeUpdatesTest(unittest.TestCase):
         window = MainWindow()
         self.addCleanup(window.close)
         window.dataset_preview(pd.DataFrame({10: [2]}))
-        self.assertEqual(window.tableWidget.horizontalHeaderItem(0).text(), "10")
+        self.assertEqual(
+            window.tableWidget.horizontalHeaderItem(0).text(), "10"
+        )
         window.dataset_preview(pd.DataFrame(index=[0]))
         window.dataset_analysis(pd.DataFrame(index=[0]))
         self.assertEqual(window.tableWidget.columnCount(), 0)

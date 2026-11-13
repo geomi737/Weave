@@ -1,0 +1,13 @@
+[tool.ruff]
+line-length = 79
+target-version = "py314"
+extend-exclude = ["ui.py", "settings_ui.py", "testing_assets", ".agents", ".codex", ".aws"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "FlowNodes", "FlowScene", "FlowStyle", "FlowTypes", "ModelArchive",
+    "ProjectLoader", "ProjectStorage", "Settings", "settings_ui", "Training", "TrainingUI", "main", "ui",
+]

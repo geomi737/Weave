@@ -1,38 +1,53 @@
+"""Ноды подготовки данных и настройки архитектуры нейросетей."""
+
 import random
-from re import L
+from math import ceil
 
 import pandas as pd
-from PyQt6.QtCore import Qt, QTimer
-from sklearn.model_selection import train_test_split
-from FlowTypes import DataframeData, SeriesData, TextData
-from qtpynodeeditor import (
-    NodeData,
-    NodeDataModel,
-    Port,
-    PortType
+from PyQt6.QtCore import QSignalBlocker, QTimer
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
 )
-
+from qtpynodeeditor import NodeData, NodeDataModel, Port, PortType
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.utils.multiclass import type_of_target
 
-from PyQt6.QtWidgets import (QLineEdit,
-                             QLabel,
-                             QPushButton,
-                             QFileDialog,
-                             QVBoxLayout,
-                             QHBoxLayout,
-                             QWidget,
-                             QComboBox,
-                             QCheckBox,
-                             QButtonGroup,
-                             QRadioButton,
-                             QDoubleSpinBox,
-                             QSpinBox)
+from FlowTypes import DataframeData, ModelTypes, SeriesData
+from ModelArchive import ACTIVATIONS, build_network
+
+
+def refill_combo(combo, values):
+    """Сохраняет выбор и тип значения при обновлении списка."""
+    previous, had_items = combo.currentData(), combo.count() > 0
+    # Заполнение списка не должно запускать пересчёт с пустым выбором.
+    with QSignalBlocker(combo):
+        combo.clear()
+        for value in values:
+            combo.addItem(str(value), value)
+        combo.setCurrentIndex(combo.findData(previous) if had_items else 0)
 
 
 class ContainerModel(NodeDataModel, verify=False):
+    """Общая оболочка виджета ноды с областью статуса."""
+
     def __init__(self, style=None, parent=None):
         super().__init__(style, parent)
-        self.embedded_widget_container, self.layout, self._status_layout = self._get_widget_container()
+        self.embedded_widget_container, self.layout, self._status_layout = (
+            self._get_widget_container()
+        )
         self.status_label = QLabel()
         self._status_layout.addWidget(self.status_label)
 
@@ -53,69 +68,13 @@ class ContainerModel(NodeDataModel, verify=False):
         return self.embedded_widget_container
 
 
-class TextInputNode(ContainerModel):
-    name = "Text Input"
-    caption = "Text Input"
-
-    num_ports = {
-        PortType.input: 0,
-        PortType.output: 1
-    }
-
-    data_type = TextData.data_type
-
-    def __init__(self, style=None, parent=None):
-        super().__init__(style, parent)
-
-        self.editor = QLineEdit()
-        self.editor.textChanged.connect(self.on_text_changed)
-
-    def embedded_widget(self) -> QWidget:
-        return self.editor
-
-    def out_data(self, port: int) -> NodeData:
-        return TextData(self.editor.text())
-
-    def on_text_changed(self):
-        self.data_updated.emit(0)
-
-
-class TextOutputNode(ContainerModel):
-    name = "Text Output"
-    caption = "Text Output"
-
-    num_ports = {
-        PortType.input: 1,
-        PortType.output: 0
-    }
-
-    data_type = TextData.data_type
-
-    def __init__(self, style=None, parent=None):
-        super().__init__(style, parent)
-
-        self.label = QLabel()
-        self.label.setText("No data")
-
-    def embedded_widget(self) -> QWidget:
-        return self.label
-
-    def set_in_data(self, node_data: TextData, port: Port):
-        if node_data is None:
-            self.label.setText("No data")
-            return
-
-        self.label.setText(node_data.value)
-
-
 class DatasetNode(ContainerModel):
+    """Загружает CSV или отображает входящий DataFrame."""
+
     name = "Dataset"
     caption = "Dataset"
 
-    num_ports = {
-        PortType.input: 1,
-        PortType.output: 1
-    }
+    num_ports = {PortType.input: 1, PortType.output: 1}
 
     data_type = DataframeData.data_type
 
@@ -153,9 +112,17 @@ class DatasetNode(ContainerModel):
 
     def load_dataset(self):
         if self.dt is None:
-            path, _ = QFileDialog.getOpenFileName(caption="Choose dataset", directory="", filter="CSV (*.csv)")
+            path, _ = QFileDialog.getOpenFileName(
+                caption="Choose dataset", directory="", filter="CSV (*.csv)"
+            )
             if path:
-                self.dt = pd.read_csv(path)
+                try:
+                    self.dt = pd.read_csv(path)
+                except (OSError, ValueError, UnicodeError) as error:
+                    QMessageBox.warning(
+                        self.embedded_widget_container, "CSV error", str(error)
+                    )
+                    return
                 self.load_btn.setText("Unload Dataset")
                 self.data_updated.emit(0)
         else:
@@ -168,13 +135,12 @@ class DatasetNode(ContainerModel):
 
 
 class DropNode(ContainerModel):
+    """Удаляет выбранный столбец или столбцы с пропусками."""
+
     name = "Drop Column"
     caption = "Drop Column"
 
-    num_ports = {
-        PortType.input: 1,
-        PortType.output: 1
-    }
+    num_ports = {PortType.input: 1, PortType.output: 1}
 
     data_type = DataframeData.data_type
 
@@ -196,25 +162,30 @@ class DropNode(ContainerModel):
 
     def set_in_data(self, node_data: DataframeData, port: Port):
         self.dt = node_data.value if node_data is not None else None
-        self.comboBox.clear()
-        if self.dt is not None:
-            for column in self.dt.columns.to_list():
-                self.comboBox.addItem(column)
+        refill_combo(self.comboBox, [] if self.dt is None else self.dt.columns)
+        self.update_data()
 
     def update_data(self):
         self.data_updated.emit(0)
 
     def input_connection_deleted(self, connection):
-        self.dt = None
-        self.comboBox.clear()
+        self.set_in_data(None, None)
 
     def out_data(self, port: int) -> NodeData:
         if self.dt is None:
             return None
         else:
             if self.dropna_checkbox.isChecked():
-                return DataframeData(self.dt.drop(columns=self.dt.columns[self.dt.isna().any()].to_list()))
-            return DataframeData(self.dt.drop(columns=self.comboBox.currentText()))
+                return DataframeData(
+                    self.dt.drop(
+                        columns=self.dt.columns[self.dt.isna().any()].to_list()
+                    )
+                )
+            if self.comboBox.currentIndex() < 0:
+                return None
+            return DataframeData(
+                self.dt.drop(columns=self.comboBox.currentData())
+            )
 
     def embedded_widget(self) -> QWidget:
         return self.embedded_widget_container
@@ -228,32 +199,21 @@ class DropNode(ContainerModel):
 
 
 class SplitColumnNode(ContainerModel):
+    """Отделяет целевую переменную от таблицы признаков."""
+
     name = "Split Column"
     caption = "Split Column"
 
-    num_ports = {
-        PortType.input: 1,
-        PortType.output: 2
-    }
+    num_ports = {PortType.input: 1, PortType.output: 2}
 
     data_type = {
-        PortType.input: {
-            0: DataframeData.data_type
-        },
-        PortType.output: {
-            0: DataframeData.data_type,
-            1: SeriesData.data_type
-        }
+        PortType.input: {0: DataframeData.data_type},
+        PortType.output: {0: DataframeData.data_type, 1: SeriesData.data_type},
     }
 
     port_caption = {
-        PortType.input: {
-            0: "Dataframe"
-        },
-        PortType.output: {
-            0: "Features",
-            1: "Target"
-        }
+        PortType.input: {0: "Dataframe"},
+        PortType.output: {0: "Features", 1: "Target"},
     }
     port_caption_visible = True
 
@@ -277,35 +237,29 @@ class SplitColumnNode(ContainerModel):
 
     def set_in_data(self, node_data: DataframeData, port: Port):
         self.dt = node_data.value if node_data is not None else None
-        self.comboBox.clear()
-        if self.dt is not None:
-            for column in self.dt.columns.to_list():
-                self.comboBox.addItem(column)
+        refill_combo(self.comboBox, [] if self.dt is None else self.dt.columns)
         self.update_output()
 
     def input_connection_deleted(self, connection):
-        self.dt = None
-        self.comboBox.clear()
-        self.update_output()
+        self.set_in_data(None, None)
 
     def out_data(self, port: int) -> NodeData:
-        if self.dt is None:
+        if self.dt is None or self.comboBox.currentIndex() < 0:
             return None
         else:
             if port == 0:
-                return DataframeData(self.dt.drop(columns=self.comboBox.currentText()))
+                return DataframeData(
+                    self.dt.drop(columns=self.comboBox.currentData())
+                )
             elif port == 1:
-                return SeriesData(self.dt[self.comboBox.currentText()])
+                return SeriesData(self.dt[self.comboBox.currentData()])
 
 
 class SeriesNode(ContainerModel):
     name = "Series View"
     caption = "Series View"
 
-    num_ports = {
-        PortType.input: 1,
-        PortType.output: 1
-    }
+    num_ports = {PortType.input: 1, PortType.output: 1}
 
     data_type = SeriesData.data_type
 
@@ -321,20 +275,19 @@ class SeriesNode(ContainerModel):
         self.data_updated.emit(0)
 
     def out_data(self, port: int) -> NodeData:
-        return SeriesData(self.dt)
+        return SeriesData(self.dt) if self.dt is not None else None
 
     def get_dataset(self):
         return self.dt.to_frame() if self.dt is not None else None
 
 
 class BinaryReplaceNode(ContainerModel):
+    """Кодирует два непустых значения цели числами 0 и 1."""
+
     name = "Binary Replace"
     caption = "Binary Replace"
 
-    num_ports = {
-        PortType.input: 1,
-        PortType.output: 1
-    }
+    num_ports = {PortType.input: 1, PortType.output: 1}
 
     data_type = SeriesData.data_type
 
@@ -353,34 +306,34 @@ class BinaryReplaceNode(ContainerModel):
 
     def set_in_data(self, node_data: SeriesData, port: Port):
         self.series = node_data.value if node_data is not None else None
-        self.comboBox.clear()
-        if self.series is not None:
-            for value in self.series.unique().tolist():
-                self.comboBox.addItem(str(value))
+        refill_combo(
+            self.comboBox,
+            [] if self.series is None else self.series.unique().tolist(),
+        )
         self.data_updated.emit(0)
 
     def out_data(self, port: int) -> NodeData:
         if self.series is None:
             return None
-        else:
-            if self.series.nunique() == 2:
-                self.status_label.clear()
-                result = self.series.astype(str)
-                result = result.where(result != self.comboBox.currentText(), 1)
-                result = result.where(result == 1, 0)
-                return SeriesData(result)
-            else:
-                self.status_label.setText("Input contains more than 2 unique items")
+        if self.series.nunique() != 2 or self.series.isna().any():
+            self.status_label.setText(
+                "Input must contain exactly two non-missing values"
+            )
+            return None
+        if self.comboBox.currentIndex() < 0:
+            return None
+        self.status_label.clear()
+        result = (self.series == self.comboBox.currentData()).astype("int64")
+        return SeriesData(result)
 
 
 class OneHotNode(ContainerModel):
+    """Обучает кодировщик на Train и преобразует другие выборки."""
+
     name = "OneHot"
     caption = "OneHot"
 
-    num_ports = {
-        PortType.input: 3,
-        PortType.output: 3
-    }
+    num_ports = {PortType.input: 3, PortType.output: 3}
 
     data_type = DataframeData.data_type
 
@@ -415,7 +368,10 @@ class OneHotNode(ContainerModel):
         self.layout.addWidget(QLabel("min_frequency"))
         self.min_frequency_spinbox = QDoubleSpinBox()
         self.min_frequency_spinbox.setDecimals(2)
-        self.min_frequency_spinbox.setRange(0, 1)
+        self.min_frequency_spinbox.setRange(0, 10000000)
+        self.min_frequency_spinbox.setToolTip(
+            "0: disabled; 0–1: fraction; integers >= 1: count"
+        )
         self.min_frequency_spinbox.setSingleStep(0.01)
 
         self.layout.addWidget(self.min_frequency_spinbox)
@@ -428,65 +384,125 @@ class OneHotNode(ContainerModel):
         self.max_categories_spinbox.valueChanged.connect(self.update_data)
 
     def set_in_data(self, node_data: DataframeData, port: Port):
-        self.datasets[port.index] = node_data.value if node_data is not None else None
-        self.update_data()
+        self.datasets[port.index] = (
+            node_data.value if node_data is not None else None
+        )
+        # Проверочные выборки не участвуют в обучении кодировщика.
+        self.update_data(retrain=port.index == 0)
 
     def retrain(self):
+        self.encoder = None
         if self.datasets[0] is not None:
-            self.encoder = OneHotEncoder(drop=self.DROP_MODES[self.drop_group.checkedId()],
-                                         handle_unknown="infrequent_if_exist",
-                                         max_categories=self.max_categories_spinbox.value() if self.max_categories_spinbox.value() else None,
-                                         min_frequency=self.min_frequency_spinbox.value() if self.min_frequency_spinbox.value() else None,
-                                         sparse_output=False).set_output(transform="pandas")
+            frequency = self.min_frequency_spinbox.value()
+            if frequency >= 1:
+                if not frequency.is_integer():
+                    raise ValueError(
+                        "min_frequency must be a fraction below 1 "
+                        "or an integer count"
+                    )
+                # Для sklearn число 1.0 является недопустимой долей.
+                frequency = int(frequency)
+            self.encoder = OneHotEncoder(
+                drop=self.DROP_MODES[self.drop_group.checkedId()],
+                handle_unknown="infrequent_if_exist",
+                max_categories=self.max_categories_spinbox.value()
+                if self.max_categories_spinbox.value()
+                else None,
+                min_frequency=frequency or None,
+                sparse_output=False,
+            ).set_output(transform="pandas")
             train_obj: pd.DataFrame = self.datasets[0].copy()
-            to_transform = train_obj.select_dtypes(exclude=['number']).columns.tolist()
-            self.encoder.fit(train_obj[to_transform])
+            to_transform = train_obj.select_dtypes(
+                exclude=["number"]
+            ).columns.tolist()
+            if to_transform:
+                self.encoder.fit(train_obj[to_transform])
 
     def out_data(self, port: int) -> NodeData:
-        if self.datasets[0] is None or self.datasets[port] is None or self.encoder is None:
+        if (
+            self.datasets[0] is None
+            or self.datasets[port] is None
+            or self.encoder is None
+        ):
             return None
         else:
-            to_transform = self.datasets[0].select_dtypes(exclude=['number']).columns.tolist()
-            to_return = self.datasets[port].copy()
-            result = self.encoder.transform(to_return[to_transform])
+            to_transform = (
+                self.datasets[0]
+                .select_dtypes(exclude=["number"])
+                .columns.tolist()
+            )
+            # Train обновляется раньше других входов при смене столбцов.
+            # До их обновления несовместимые выходы должны быть пустыми.
+            train_columns = self.datasets[0].columns
+            if set(self.datasets[port].columns) != set(train_columns):
+                self.status_label.setText(
+                    f"{self.port_caption[PortType.input][port]}: "
+                    "columns differ from Train"
+                )
+                return None
+            # Одинаковый порядок признаков нужен всем входам модели.
+            to_return = (
+                self.datasets[port].reindex(columns=train_columns).copy()
+            )
+            if not to_transform:
+                return DataframeData(to_return)
+            # Пустая выборка сохраняет схему, но не передаётся в transform.
+            if to_return.empty:
+                result = pd.DataFrame(
+                    index=to_return.index,
+                    columns=self.encoder.get_feature_names_out(),
+                    dtype=float,
+                )
+            else:
+                result = self.encoder.transform(to_return[to_transform])
 
-            return DataframeData(pd.concat([to_return.drop(columns=to_transform), result], axis=1))
+            return DataframeData(
+                pd.concat(
+                    [to_return.drop(columns=to_transform), result], axis=1
+                )
+            )
 
-    def update_data(self):
-        self.retrain()
+    def update_data(self, *_args, retrain=True):
+        try:
+            if retrain:
+                self.retrain()
+            self.status_label.setText("Ready")
+        except (ValueError, TypeError) as error:
+            self.encoder = None
+            self.status_label.setText(f"Train: {error}")
         self.data_updated.emit(0)
         self.data_updated.emit(1)
         self.data_updated.emit(2)
 
 
 class TVTSplitNode(ContainerModel):
+    """Хранит согласованное разбиение признаков и цели."""
+
     name = "TVT Split"
     caption = "Train Validate Test Split"
 
-    num_ports = {
-        PortType.input: 2,
-        PortType.output: 6
-    }
+    num_ports = {PortType.input: 2, PortType.output: 6}
 
     data_type = {
-        PortType.input: {
-            0: DataframeData.data_type,
-            1: SeriesData.data_type
+        PortType.input: {0: DataframeData.data_type, 1: SeriesData.data_type},
+        PortType.output: {
+            x: (
+                DataframeData.data_type if x % 2 == 0 else SeriesData.data_type
+            )
+            for x in range(6)
         },
-        PortType.output: {x: (DataframeData.data_type if x % 2 == 0 else SeriesData.data_type) for x in range(6)}
     }
 
     port_caption = {
-        PortType.input: {
-            0: "Features",
-            1: "Target"},
+        PortType.input: {0: "Features", 1: "Target"},
         PortType.output: {
             0: "Train Features",
             1: "Train Target",
             2: "Validate Features",
             3: "Validate Target",
             4: "Test Features",
-            5: "Test Target"},
+            5: "Test Target",
+        },
     }
 
     port_caption_visible = True
@@ -494,8 +510,11 @@ class TVTSplitNode(ContainerModel):
     def __init__(self, style=None, parent=None):
         super().__init__(style, parent)
         self.init_widget()
-        self.X: DataframeData | None = None
-        self.y: SeriesData | None = None
+        self.X = None
+        self.y = None
+        self.outputs = [None] * 6
+        self.random_state = random.randint(1, 1000000)
+        self.split_version = 2
 
     def init_widget(self):
         self.val_pct = QDoubleSpinBox()
@@ -526,6 +545,8 @@ class TVTSplitNode(ContainerModel):
         self.layout.addWidget(self.val_pct)
 
     def set_in_data(self, node_data: DataframeData | SeriesData, port: Port):
+        if not self.signalsBlocked():
+            self.split_version = 2
         self.random_state = random.randint(1, 1000000)
         port = port.index
         dt = node_data.value if node_data is not None else None
@@ -536,36 +557,95 @@ class TVTSplitNode(ContainerModel):
         self.update_output()
 
     def out_data(self, port: int) -> NodeData:
-        if self.X is None or self.y is None:
-            return None
-        elif (self.X.shape[0] != self.y.shape[-1]):
-            self.status_label.setText("Shapes of features and target does not match")
-        else:
-            val_X, val_y = None, None
-            train_X, test_X, train_y, test_y = train_test_split(
-                self.X, self.y, test_size=self.test_pct.value(), random_state=self.random_state)
-            if self.include_validate.isChecked():
-                train_X, val_X, train_y, val_y = train_test_split(train_X, train_y, test_size=self.val_pct.value(
-                ) * (1 + self.test_pct.value()), random_state=self.random_state)
-            match port:
-                case 0:
-                    return DataframeData(train_X)
-                case 1:
-                    return SeriesData(train_y)
-                case 2:
-                    return DataframeData(val_X)
-                case 3:
-                    return SeriesData(val_y)
-                case 4:
-                    return DataframeData(test_X)
-                case 5:
-                    return SeriesData(test_y)
+        return self.outputs[port]
 
-    def update_output(self):
+    def split_datasets(self):
+        if self.X is None or self.y is None:
+            return [None] * 6
+        # Парные входы приходят последовательно и временно могут различаться.
+        if len(self.X) != len(self.y) or not self.X.index.equals(self.y.index):
+            raise ValueError(
+                "Features and target must have matching rows and indexes"
+            )
+        if len(self.X) < 2 or self.y.isna().any():
+            raise ValueError(
+                "Use at least two rows and a target without missing values"
+            )
+        test_size = self.test_pct.value()
+        val_size = (
+            self.val_pct.value() if self.include_validate.isChecked() else 0
+        )
+        if test_size + val_size >= 1:
+            raise ValueError(
+                "Sum of Test and Validation fractions must be below 1"
+            )
+        unstratified = False
+
+        # Редкие классы и маленькие выборки могут исключать стратификацию.
+        def split(features, target, size):
+            nonlocal unstratified
+            stratify = None
+            if self.split_version >= 2 and type_of_target(target) in (
+                "binary",
+                "multiclass",
+            ):
+                counts = target.value_counts()
+                test_rows = ceil(len(target) * size)
+                if counts.min() >= 2 and min(
+                    test_rows, len(target) - test_rows
+                ) >= len(counts):
+                    stratify = target
+                else:
+                    unstratified = True
+            return train_test_split(
+                features,
+                target,
+                test_size=size,
+                random_state=self.random_state,
+                stratify=stratify,
+            )
+
+        train_X, test_X, train_y, test_y = split(self.X, self.y, test_size)
+        val_X, val_y = None, None
+        if val_size:
+            # Validation задаётся от всей выборки, а отделяется от остатка.
+            # Старый алгоритм сохранён для ранее записанных проектов.
+            fraction = (
+                val_size / (1 - test_size)
+                if self.split_version >= 2
+                else val_size * (1 + test_size)
+            )
+            train_X, val_X, train_y, val_y = split(train_X, train_y, fraction)
+        self.status_label.setText(
+            "Without stratification: too few samples per class"
+            if unstratified
+            else "Ready"
+        )
+        return [
+            DataframeData(train_X),
+            SeriesData(train_y),
+            DataframeData(val_X) if val_X is not None else None,
+            SeriesData(val_y) if val_y is not None else None,
+            DataframeData(test_X),
+            SeriesData(test_y),
+        ]
+
+    def update_output(self, *_args):
+        if _args and not self.signalsBlocked():
+            self.split_version = 2
+        # Ошибка разбиения не должна оставлять на выходах старые данные.
+        self.outputs = [None] * 6
+        self.status_label.clear()
+        try:
+            self.outputs = self.split_datasets()
+        except (ValueError, TypeError) as error:
+            self.status_label.setText(str(error))
         for port in range(6):
             self.data_updated.emit(port)
 
     def include_val_changed(self, state):
+        if not self.signalsBlocked():
+            self.split_version = 2
         if state:
             self.val_pct.show()
             self.val_label.show()
@@ -576,55 +656,64 @@ class TVTSplitNode(ContainerModel):
 
 
 class Model(ContainerModel):
+    """Хранит архитектуру сети и данные с шести входных портов."""
+
     name = "Model"
     caption = "Model"
+    task = None
 
-    num_ports = {
-        PortType.input: 2,
-        PortType.output: 0
-    }
+    num_ports = {PortType.input: 6, PortType.output: 0}
 
     data_type = {
         PortType.input: {
             0: DataframeData.data_type,
-            1: SeriesData.data_type
+            1: SeriesData.data_type,
+            2: DataframeData.data_type,
+            3: SeriesData.data_type,
+            4: DataframeData.data_type,
+            5: SeriesData.data_type,
         }
     }
 
     port_caption = {
         PortType.input: {
-            0: "Features",
-            1: "Target"
+            0: "Train Features",
+            1: "Train Target",
+            2: "Validation Features",
+            3: "Validation Target",
+            4: "Test Features",
+            5: "Test Target",
         }
     }
+    port_caption_visible = True
 
     def __init__(self, style=None, parent=None):
         super().__init__(style, parent)
         self.layers = []
+        # Несколько изменений слоёв объединяются в один пересчёт геометрии.
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.timeout.connect(
+            self.embedded_widget_size_updated.emit
+        )
+        self.datasets = [None] * 6
         self.init_widget()
-        self.X = None
-        self.y = None
 
     def set_in_data(self, node_data: DataframeData | SeriesData, port: Port):
-        data = node_data.value if node_data else None
-        port = port.index
-        match port:
-            case 0:
-                self.X = data
-            case 1:
-                self.y = data
+        self.datasets[port.index] = (
+            node_data.value if node_data is not None else None
+        )
 
     def init_widget(self):
-        self.lr_spinbox = QDoubleSpinBox(self.embedded_widget_container)
-        self.lr_spinbox.setRange(0, 1)
-        self.lr_spinbox.setDecimals(8)
-        self.lr_spinbox.setValue(1e-4)
-        self.add_linear_button = QPushButton("Add linear", self.embedded_widget_container)
+        self.add_linear_button = QPushButton(
+            "Add linear", self.embedded_widget_container
+        )
         self.add_linear_button.clicked.connect(self.add_linear_layer)
-        self.add_activation_button = QPushButton("Add activation", self.embedded_widget_container)
+        self.add_activation_button = QPushButton(
+            "Add activation", self.embedded_widget_container
+        )
         self.add_activation_button.clicked.connect(self.add_activation_layer)
 
-        self.layout.addWidget(self.lr_spinbox)
         self.layout.addWidget(self.add_linear_button)
         self.layout.addWidget(self.add_activation_button)
         self.layers_layout = QVBoxLayout()
@@ -645,9 +734,7 @@ class Model(ContainerModel):
         out_spinbox.setValue(1)
 
         delete_button = QPushButton("Delete")
-        delete_button.setStyleSheet(
-            "background-color: #c62828; color: white;"
-        )
+        delete_button.setStyleSheet("background-color: #c62828; color: white;")
         row_layout.addWidget(in_spinbox, 1)
         row_layout.addWidget(out_spinbox, 1)
         row_layout.addWidget(delete_button)
@@ -674,14 +761,9 @@ class Model(ContainerModel):
 
         row_layout = QHBoxLayout()
         activation_combobox = QComboBox()
-        activation_combobox.addItems([
-            "ReLU", "GELU", "Sigmoid", "Tanh", "LeakyReLU",
-            "ELU", "SiLU", "Softmax",
-        ])
+        activation_combobox.addItems(ACTIVATIONS)
         delete_button = QPushButton("Delete")
-        delete_button.setStyleSheet(
-            "background-color: #c62828; color: white;"
-        )
+        delete_button.setStyleSheet("background-color: #c62828; color: white;")
         row_layout.addWidget(activation_combobox, 1)
         row_layout.addWidget(delete_button)
         layer_layout.addLayout(row_layout)
@@ -698,6 +780,13 @@ class Model(ContainerModel):
         )
         self._update_layers_size()
 
+    def set_training_active(self, active):
+        self.add_linear_button.setEnabled(not active)
+        self.add_activation_button.setEnabled(not active)
+
+        for layer in self.layers:
+            layer["widget"].setEnabled(not active)
+
     def remove_layer(self, layer):
         self.layers.remove(layer)
         self.layers_layout.removeWidget(layer["widget"])
@@ -706,5 +795,49 @@ class Model(ContainerModel):
         self._update_layers_size()
 
     def _update_layers_size(self):
-        # Let Qt recalculate the layout before updating the node geometry.
-        QTimer.singleShot(0, self.embedded_widget_size_updated.emit)
+        self._resize_timer.start(0)
+
+    def get_architecture(self):
+        """Описывает слои обычными словарями для сохранения."""
+        return [
+            {
+                "type": "linear",
+                "in_features": layer["in_spinbox"].value(),
+                "out_features": layer["out_spinbox"].value(),
+            }
+            if layer["type"] == "linear"
+            else {
+                "type": "activation",
+                "name": layer["activation_combobox"].currentText(),
+            }
+            for layer in self.layers
+        ]
+
+    def replace_architecture(self, architecture):
+        for layer in list(self.layers):
+            self.remove_layer(layer)
+        for layer in architecture:
+            if layer["type"] == "linear":
+                self.add_linear_layer()
+                self.layers[-1]["in_spinbox"].setValue(layer["in_features"])
+                self.layers[-1]["out_spinbox"].setValue(layer["out_features"])
+            else:
+                self.add_activation_layer()
+                self.layers[-1]["activation_combobox"].setCurrentText(
+                    layer["name"]
+                )
+
+    def build_network(self):
+        return build_network(self.get_architecture())
+
+
+class RegressionModel(Model):
+    name = "Regression Model"
+    caption = "Regression Model"
+    task = ModelTypes.regression
+
+
+class ClassificationModel(Model):
+    name = "Classification Model"
+    caption = "Classification Model"
+    task = ModelTypes.classification

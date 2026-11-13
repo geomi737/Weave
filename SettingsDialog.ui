@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SettingsDialog</class>
+ <widget class="QDialog" name="SettingsDialog">
+  <property name="windowTitle"><string>Settings</string></property>
+  <property name="minimumSize"><size><width>480</width><height>0</height></size></property>
+  <layout class="QVBoxLayout" name="vertical_layout">
+   <item>
+    <widget class="QGroupBox" name="compute_group">
+     <property name="title"><string>Compute device</string></property>
+     <layout class="QFormLayout" name="form_layout">
+      <item row="0" column="0"><widget class="QLabel" name="backend_label"><property name="text"><string>Backend</string></property></widget></item>
+      <item row="0" column="1"><widget class="QComboBox" name="backend_combo"/></item>
+      <item row="1" column="0" colspan="2">
+       <widget class="QLabel" name="device_info">
+        <property name="wordWrap"><bool>true</bool></property>
+        <property name="text"><string/></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="apply_note">
+     <property name="wordWrap"><bool>true</bool></property>
+     <property name="text"><string>Changes apply to new training runs. Running or paused training keeps its current device.</string></property>
+    </widget>
+   </item>
+   <item><widget class="QDialogButtonBox" name="button_box"><property name="standardButtons"><set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set></property></widget></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
