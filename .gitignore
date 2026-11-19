@@ -5,6 +5,9 @@ Agents.md
 .codex/
 .aws/
 
+# For local deployment
+tests/
+
 # Python environment and cache
 .venv/
 venv/
